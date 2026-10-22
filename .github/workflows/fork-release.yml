@@ -1,0 +1,52 @@
+name: Fork Release
+
+# Release du fork Marlboro62 : à chaque changement de version dans
+# custom_components/googlefindmy/manifest.json sur main, crée le tag vX.Y.Z,
+# la release GitHub (stable) et y joint le zip HACS googlefindmy.zip
+# (hacs.json : zip_release=true). Les workflows de release amont sont
+# réservés à jleinenbach/BSkando et ne tournent pas ici.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "custom_components/googlefindmy/manifest.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publier la release du fork
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'Marlboro62'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lire la version du manifest
+        id: version
+        run: |
+          VERSION=$(jq -r '.version' custom_components/googlefindmy/manifest.json)
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Construire le zip HACS
+        # manifest.json doit être à la racine du zip : on zippe le contenu du
+        # dossier de l'intégration, pas le dossier lui-même.
+        run: |
+          cd custom_components/googlefindmy
+          zip -qr ../../googlefindmy.zip . -x '__pycache__/*' '*/__pycache__/*'
+          cd ../..
+          unzip -l googlefindmy.zip | grep -q ' manifest.json$'
+
+      - name: Créer la release si le tag n'existe pas
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "La release $TAG existe déjà, rien à faire."
+            exit 0
+          fi
+          gh release create "$TAG" googlefindmy.zip \
+            --target "$GITHUB_SHA" --title "$TAG" --latest \
+            --notes "Release du fork Marlboro62, basée sur jleinenbach/GoogleFindMy-HA 1.15.25. Zip HACS googlefindmy.zip joint."
